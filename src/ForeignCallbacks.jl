@@ -28,11 +28,6 @@ end
 # When we dequeue, we discard the head node and return the data
 # from the new head.
 
-function unsafe_enqueue!(ptr::Ptr{Cvoid}, data::T) where T
-    q = Base.unsafe_pointer_to_objref(ptr)::LockfreeQueue{T}
-    enqueue!(q, data)
-end
-
 function enqueue!(q::LockfreeQueue{T}, data::T) where T
     node = Node(data)
     p_node = convert(Ptr{Node{T}}, Libc.malloc(sizeof(Node{T})))
@@ -46,20 +41,42 @@ function enqueue!(q::LockfreeQueue{T}, data::T) where T
     return nothing
 end
 
+function unsafe_enqueue!(ptr::Ptr{Cvoid}, data::T) where T
+    node = Node(data)
+    p_node = convert(Ptr{Node{T}}, Libc.malloc(sizeof(Node{T})))
+    Base.unsafe_store!(p_node, node)
+
+    # Update the tail node in queue
+    ptr += fieldoffset(ForeignCallbacks.LockfreeQueue{T}, 2)
+    p_tail = Core.Intrinsics.atomic_pointerswap(convert(Ptr{Ptr{Node{T}}}, ptr), p_node, :acquire_release)
+
+    # Link former tail to new tail
+    Core.Intrinsics.atomic_pointerset(convert(Ptr{Ptr{Node{T}}}, p_tail), p_node, :release)
+    return nothing
+end
+
 function dequeue!(q::LockfreeQueue{T}) where T
     p_head = @atomic :acquire q.head
-    p_new_head = Core.Intrinsics.atomic_pointerref(convert(Ptr{Ptr{Node{T}}}, p_head), :acquire)
 
-    if p_new_head == convert(Ptr{Node{T}}, C_NULL)
-        return nothing # never remove the last node, queue is empty
+    success = false
+    p_new_head = convert(Ptr{Node{T}}, C_NULL)
+    while !success
+        # Load new head
+        p_new_head = Core.Intrinsics.atomic_pointerref(convert(Ptr{Ptr{Node{T}}}, p_head), :acquire)
+        if p_new_head == convert(Ptr{Node{T}}, C_NULL)
+            return nothing # never remove the last node, queue is empty
+        end
+        # Attempt replacement of current head with new head
+        p_head, success = @atomicreplace :acquire_release :monotonic q.head p_head => p_new_head
     end
-    p_head = @atomicswap :acquire_release q.head = p_new_head
-    p_new_head = Core.Intrinsics.atomic_pointerref(convert(Ptr{Ptr{Node{T}}}, p_head), :acquire)
     
     # We have atomically advanced head and claimed a node.
     # We return the data from the new head
     # The lists starts of with a temporary node, which we will now free.
     head = unsafe_load(p_new_head) # p_head is now valid to free
+    # TODO: Is there a potential race between `free(p_head)` and `unsafe_load(p_head)`
+    #       on the previous `dequeue!`?
+    #       As long as we only have one consumer this is fine. 
     Libc.free(p_head)
     return Some(head.data)
 end
