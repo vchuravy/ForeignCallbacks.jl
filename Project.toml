@@ -1,0 +1,11 @@
+name = "ForeignCallbacks"
+uuid = "809b5ff2-8730-47bb-8e19-67299d747c44"
+authors = ["Valentin Churavy <v.churavy@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+FunctionWrappers = "069b7b12-0de2-55c6-9aab-29f3d0a68a2e"
+
+[compat]
+FunctionWrappers = "1.1"
+julia = "1.7"
