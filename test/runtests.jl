@@ -7,6 +7,19 @@ struct Message
     data::Ptr{Cvoid}
 end
 
+struct Message2
+    id::Int
+    data::Ref{Int}
+end
+
+@testset "Constructor" begin
+    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Ref{Int}}()
+    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Base.RefValue{Int}}()
+    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Message2}()
+    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Array}()
+    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Array{Int, 1}}()
+end
+
 @testset "Queue" begin
     lfq = ForeignCallbacks.LockfreeQueue{Int}()
 

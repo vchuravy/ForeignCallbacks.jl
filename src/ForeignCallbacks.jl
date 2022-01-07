@@ -18,6 +18,7 @@ mutable struct LockfreeQueue{T}
     @atomic head::Ptr{Node{T}}
     @atomic tail::Ptr{Node{T}}
     function LockfreeQueue{T}() where T
+        @assert !Base.ismutabletype(T) && Base.isconcretetype(T) && Base.datatype_pointerfree(T)
         tmp = calloc(Node{T})
         new{T}(tmp, tmp)
     end
