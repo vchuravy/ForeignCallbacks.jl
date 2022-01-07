@@ -17,10 +17,10 @@ end
 mutable struct LockfreeQueue{T}
     @atomic head::Ptr{Node{T}}
     @atomic tail::Ptr{Node{T}}
-end
-function LockfreeQueue{T}() where T
-    tmp = calloc(Node{T})
-    LockfreeQueue(tmp, tmp)
+    function LockfreeQueue{T}() where T
+        tmp = calloc(Node{T})
+        new{T}(tmp, tmp)
+    end
 end
 
 # Notes:
@@ -41,6 +41,7 @@ function enqueue!(q::LockfreeQueue{T}, data::T) where T
     return nothing
 end
 
+# Manual implementation of `enqueue!` since `unsafe_pointer_to_objref(ptr)::T` creates a gcframe
 function unsafe_enqueue!(ptr::Ptr{Cvoid}, data::T) where T
     node = Node(data)
     p_node = convert(Ptr{Node{T}}, Libc.malloc(sizeof(Node{T})))
@@ -81,26 +82,22 @@ function dequeue!(q::LockfreeQueue{T}) where T
     return Some(head.data)
 end
 
-import FunctionWrappers: FunctionWrapper
-
 mutable struct ForeignCallback{T}
     queue::LockfreeQueue{T}
-    callback::FunctionWrapper{Nothing, Tuple{T}}
     cond::Base.AsyncCondition
 
-    function ForeignCallback{T}(callback_fn) where T
+    function ForeignCallback{T}(callback) where T
         queue = LockfreeQueue{T}()
-        callback = FunctionWrapper{Nothing, Tuple{T}}(callback_fn)
 
         cond = Base.AsyncCondition() do _
             data = dequeue!(queue)
             while data !== nothing
-                Threads.@spawn callback(something($data))
+                Base.errormonitor(Threads.@spawn callback(something($data)))
                 data = dequeue!(queue)
             end
             return
         end
-        this = new{T}(queue, callback, cond)
+        this = new{T}(queue, cond)
         finalizer(this) do this
             close(this.cond)
             # TODO: free queue we are leaking at least one node here
