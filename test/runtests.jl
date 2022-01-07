@@ -2,6 +2,11 @@ using ForeignCallbacks
 using Test
 using InteractiveUtils
 
+struct Message
+    id::Int
+    data::Ptr{Cvoid}
+end
+
 @testset "Queue" begin
     lfq = ForeignCallbacks.LockfreeQueue{Int}()
 
@@ -45,6 +50,16 @@ end
         @test !contains(llvm, "%gcframe")
     end
     let llvm = sprint(io->code_llvm(io, ForeignCallbacks.notify!, Tuple{ForeignCallbacks.ForeignToken, Int}))
+        @test !contains(llvm, "%thread_ptr")
+        @test !contains(llvm, "%pgcstack")
+        @test !contains(llvm, "%gcframe")
+    end
+    let llvm = sprint(io->code_llvm(io, ForeignCallbacks.unsafe_enqueue!, Tuple{Ptr{Cvoid}, Message}))
+        @test !contains(llvm, "%thread_ptr")
+        @test !contains(llvm, "%pgcstack")
+        @test !contains(llvm, "%gcframe")
+    end
+    let llvm = sprint(io->code_llvm(io, ForeignCallbacks.notify!, Tuple{ForeignCallbacks.ForeignToken, Message}))
         @test !contains(llvm, "%thread_ptr")
         @test !contains(llvm, "%pgcstack")
         @test !contains(llvm, "%gcframe")
