@@ -13,28 +13,28 @@ struct Message2
 end
 
 @testset "Constructor" begin
-    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Ref{Int}}()
-    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Base.RefValue{Int}}()
-    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Message2}()
-    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Array}()
-    @test_throws AssertionError ForeignCallbacks.LockfreeQueue{Array{Int, 1}}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Ref{Int}}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Base.RefValue{Int}}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Message2}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Array}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Array{Int, 1}}()
 end
 
-@testset "Queue" begin
-    lfq = ForeignCallbacks.LockfreeQueue{Int}()
+@testset "SingleConsumerStack" begin
+    lfq = ForeignCallbacks.SingleConsumerStack{Int}()
 
-    @test ForeignCallbacks.dequeue!(lfq) === nothing
-    ForeignCallbacks.enqueue!(lfq, 1)
-    @test ForeignCallbacks.dequeue!(lfq) === Some(1)
-    @test ForeignCallbacks.dequeue!(lfq) === nothing
+    @test ForeignCallbacks.popall!(lfq) == []
+    push!(lfq, 1)
+    @test ForeignCallbacks.popall!(lfq) == [1]
+    @test ForeignCallbacks.popall!(lfq) == []
 
     GC.@preserve lfq begin
         ptr = Base.pointer_from_objref(lfq)
-        ForeignCallbacks.unsafe_enqueue!(ptr, 2)
+        ForeignCallbacks.unsafe_push!(ptr, 2)
     end
-    # TODO: Test no load from TLS in `unsafe_enqueue!`
-    @test ForeignCallbacks.dequeue!(lfq) === Some(2)
-    @test ForeignCallbacks.dequeue!(lfq) === nothing
+    # TODO: Test no load from TLS in `unsafe_push!`
+    @test ForeignCallbacks.popall!(lfq) == [2]
+    @test ForeignCallbacks.popall!(lfq) == []
 end
 
 @testset "callback" begin
@@ -52,12 +52,12 @@ end
 end
 
 @testset "IR" begin 
-    let llvm = sprint(io->code_llvm(io, ForeignCallbacks.enqueue!, Tuple{ForeignCallbacks.LockfreeQueue{Int}, Int}))
+    let llvm = sprint(io->code_llvm(io, push!, Tuple{ForeignCallbacks.SingleConsumerStack{Int}, Int}))
         @test !contains(llvm, "%thread_ptr")
         @test !contains(llvm, "%pgcstack")
         @test !contains(llvm, "%gcframe")
     end
-    let llvm = sprint(io->code_llvm(io, ForeignCallbacks.unsafe_enqueue!, Tuple{Ptr{Cvoid}, Int}))
+    let llvm = sprint(io->code_llvm(io, ForeignCallbacks.unsafe_push!, Tuple{Ptr{Cvoid}, Int}))
         @test !contains(llvm, "%thread_ptr")
         @test !contains(llvm, "%pgcstack")
         @test !contains(llvm, "%gcframe")
@@ -67,7 +67,7 @@ end
         @test !contains(llvm, "%pgcstack")
         @test !contains(llvm, "%gcframe")
     end
-    let llvm = sprint(io->code_llvm(io, ForeignCallbacks.unsafe_enqueue!, Tuple{Ptr{Cvoid}, Message}))
+    let llvm = sprint(io->code_llvm(io, ForeignCallbacks.unsafe_push!, Tuple{Ptr{Cvoid}, Message}))
         @test !contains(llvm, "%thread_ptr")
         @test !contains(llvm, "%pgcstack")
         @test !contains(llvm, "%gcframe")
@@ -89,7 +89,7 @@ end
 
 function producer!(lfq)
     for i in 1:100
-        ForeignCallbacks.enqueue!(lfq, i)
+        push!(lfq, i)
         yield()
     end
 end
@@ -98,7 +98,7 @@ function unsafe_producer!(lfq)
     for i in 1:100
         GC.@preserve lfq begin
             ptr = Base.pointer_from_objref(lfq)
-            ForeignCallbacks.unsafe_enqueue!(ptr, i)
+            ForeignCallbacks.unsafe_push!(ptr, i)
         end
         yield()
     end
@@ -109,9 +109,8 @@ function consumer!(lfq)
 
     done = false
     while !done 
-        data = ForeignCallbacks.dequeue!(lfq)
-        if data !== nothing
-            acc += something(data)
+        for x in ForeignCallbacks.popall!(lfq)
+            acc += x
         end
         done = acc == sum(1:100)*2*Threads.nthreads()
         yield()
@@ -120,7 +119,7 @@ end
 
 @testset "Queue threads" begin
     @test Threads.nthreads() == Sys.CPU_THREADS
-    let lfq = ForeignCallbacks.LockfreeQueue{Int}()
+    let lfq = ForeignCallbacks.SingleConsumerStack{Int}()
         @sync begin
             for n in 1:2*Threads.nthreads()
                 Threads.@spawn producer!(lfq)
@@ -130,7 +129,7 @@ end
         @test true
     end
 
-    let lfq = ForeignCallbacks.LockfreeQueue{Int}()
+    let lfq = ForeignCallbacks.SingleConsumerStack{Int}()
         @sync begin
             for n in 1:2*Threads.nthreads()
                 Threads.@spawn unsafe_producer!(lfq)
