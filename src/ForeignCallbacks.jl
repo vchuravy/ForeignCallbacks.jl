@@ -84,7 +84,7 @@ mutable struct ForeignCallback{T}
     cond::Base.AsyncCondition
     task::Task
 
-    function ForeignCallback{T}(callback; fifo::Bool = false) where T
+    function ForeignCallback{T}(callback; fifo::Bool = true) where T
         stack = Stack{T}()
         cond = Base.AsyncCondition()
         mayreverse = fifo ? Iterators.reverse : identity
