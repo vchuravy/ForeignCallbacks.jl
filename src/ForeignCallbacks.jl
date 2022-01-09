@@ -20,7 +20,7 @@ end
 mutable struct Stack{T}
     @atomic top::Ptr{Node{T}}
     function Stack{T}() where T
-        @assert Base.datatype_pointerfree(Some{T})
+        @assert Base.datatype_pointerfree(Node{T})
         new{T}(C_NULL)
     end
 end
