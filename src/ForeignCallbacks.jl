@@ -87,13 +87,13 @@ mutable struct ForeignCallback{T}
     function ForeignCallback{T}(callback; fifo::Bool = false) where T
         stack = Stack{T}()
         cond = Base.AsyncCondition()
+        mayreverse = fifo ? Iterators.reverse : identity
         task = Threads.@spawn begin
             local results = T[]
             while isopen(cond)
                 wait(cond)
                 moveto!(results, stack)
-                fifo && reverse!(results)
-                for data in results
+                for data in mayreverse(results)
                     Base.errormonitor(Threads.@spawn callback(data))
                 end
                 empty!(results)
