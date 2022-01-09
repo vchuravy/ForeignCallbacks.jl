@@ -25,7 +25,7 @@ mutable struct Stack{T}
     end
 end
 
-function enqueue!(stack::Stack{T}, data::T) where T
+function Base.push!(stack::Stack{T}, data::T) where T
     node = Node(data)
     p_node = convert(Ptr{Node{T}}, Libc.malloc(sizeof(Node{T})))
     Base.unsafe_store!(p_node, node)
@@ -38,8 +38,8 @@ function enqueue!(stack::Stack{T}, data::T) where T
     end
 end
 
-# Manual implementation of `enqueue!` since `unsafe_pointer_to_objref(ptr)::T` creates a gcframe
-function unsafe_enqueue!(ptr::Ptr{Cvoid}, data::T) where T
+# Manual implementation of `push!` since `unsafe_pointer_to_objref(ptr)::T` creates a gcframe
+function unsafe_push!(ptr::Ptr{Cvoid}, data::T) where T
     node = Node(data)
     p_node = convert(Ptr{Node{T}}, Libc.malloc(sizeof(Node{T})))
     Base.unsafe_store!(p_node, node)
@@ -59,7 +59,7 @@ function unsafe_enqueue!(ptr::Ptr{Cvoid}, data::T) where T
     end
 end
 
-dequeueall!(stack::Stack{T}) where T = moveto!(T[], stack)
+popall!(stack::Stack{T}) where T = moveto!(T[], stack)
 
 function moveto!(results::AbstractVector{T}, stack::Stack{T}) where T
     p_node = @atomic :monotonic stack.top
@@ -122,7 +122,7 @@ by calling `notify!`.
 ForeignToken(fc::ForeignCallback) = ForeignToken(fc.cond.handle, Base.pointer_from_objref(fc.queue))
 
 function notify!(token::ForeignToken, data::T) where T
-    unsafe_enqueue!(token.queue, data)
+    unsafe_push!(token.queue, data)
     ccall(:uv_async_send, Cvoid, (Ptr{Cvoid},), token.handle)
     return
 end
