@@ -13,15 +13,15 @@ struct Message2
 end
 
 @testset "Constructor" begin
-    @test_throws AssertionError ForeignCallbacks.Stack{Ref{Int}}()
-    @test_throws AssertionError ForeignCallbacks.Stack{Base.RefValue{Int}}()
-    @test_throws AssertionError ForeignCallbacks.Stack{Message2}()
-    @test_throws AssertionError ForeignCallbacks.Stack{Array}()
-    @test_throws AssertionError ForeignCallbacks.Stack{Array{Int, 1}}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Ref{Int}}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Base.RefValue{Int}}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Message2}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Array}()
+    @test_throws AssertionError ForeignCallbacks.SingleConsumerStack{Array{Int, 1}}()
 end
 
-@testset "Stack" begin
-    lfq = ForeignCallbacks.Stack{Int}()
+@testset "SingleConsumerStack" begin
+    lfq = ForeignCallbacks.SingleConsumerStack{Int}()
 
     @test ForeignCallbacks.popall!(lfq) == []
     push!(lfq, 1)
@@ -52,7 +52,7 @@ end
 end
 
 @testset "IR" begin 
-    let llvm = sprint(io->code_llvm(io, push!, Tuple{ForeignCallbacks.Stack{Int}, Int}))
+    let llvm = sprint(io->code_llvm(io, push!, Tuple{ForeignCallbacks.SingleConsumerStack{Int}, Int}))
         @test !contains(llvm, "%thread_ptr")
         @test !contains(llvm, "%pgcstack")
         @test !contains(llvm, "%gcframe")
@@ -119,7 +119,7 @@ end
 
 @testset "Queue threads" begin
     @test Threads.nthreads() == Sys.CPU_THREADS
-    let lfq = ForeignCallbacks.Stack{Int}()
+    let lfq = ForeignCallbacks.SingleConsumerStack{Int}()
         @sync begin
             for n in 1:2*Threads.nthreads()
                 Threads.@spawn producer!(lfq)
@@ -129,7 +129,7 @@ end
         @test true
     end
 
-    let lfq = ForeignCallbacks.Stack{Int}()
+    let lfq = ForeignCallbacks.SingleConsumerStack{Int}()
         @sync begin
             for n in 1:2*Threads.nthreads()
                 Threads.@spawn unsafe_producer!(lfq)

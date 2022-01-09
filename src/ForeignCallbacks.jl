@@ -17,15 +17,28 @@ function calloc(::Type{T}) where T
     return convert(Ptr{T}, ptr)
 end
 
-mutable struct Stack{T}
+"""
+    SingleConsumerStack{T}
+
+A variant of Treiber stack that assumes single-consumer for simple (hopefully)
+correct implementation.
+
+Safety notes: `push!` and `unsafe_push!` on `SingleConsumerStack{T}` can be
+called from multiple tasks/threads. `unsafe_push! can be called from foreign
+threads without the Julia runtime.  Only one Julia task is allowed to call
+`popall!` at any point.  This simplifies the implementation and avoids the use
+of "counted pointer" (and hence 128 bit CAS) that would typically be required
+for general Treiber stack with manual memory management.
+"""
+mutable struct SingleConsumerStack{T}
     @atomic top::Ptr{Node{T}}
-    function Stack{T}() where T
+    function SingleConsumerStack{T}() where T
         @assert Base.datatype_pointerfree(Node{T})
         new{T}(C_NULL)
     end
 end
 
-function Base.push!(stack::Stack{T}, data::T) where T
+function Base.push!(stack::SingleConsumerStack{T}, data::T) where T
     node = Node(data)
     p_node = convert(Ptr{Node{T}}, Libc.malloc(sizeof(Node{T})))
     Base.unsafe_store!(p_node, node)
@@ -59,9 +72,9 @@ function unsafe_push!(ptr::Ptr{Cvoid}, data::T) where T
     end
 end
 
-popall!(stack::Stack{T}) where T = moveto!(T[], stack)
+popall!(stack::SingleConsumerStack{T}) where T = moveto!(T[], stack)
 
-function moveto!(results::AbstractVector{T}, stack::Stack{T}) where T
+function moveto!(results::AbstractVector{T}, stack::SingleConsumerStack{T}) where T
     p_node = @atomic :monotonic stack.top
     while true
         p_node, ok = @atomicreplace :acquire_release :monotonic stack.top p_node => C_NULL
@@ -80,12 +93,12 @@ function moveto!(results::AbstractVector{T}, stack::Stack{T}) where T
 end
 
 mutable struct ForeignCallback{T}
-    queue::Stack{T}
+    queue::SingleConsumerStack{T}
     cond::Base.AsyncCondition
     task::Task
 
     function ForeignCallback{T}(callback; fifo::Bool = true) where T
-        stack = Stack{T}()
+        stack = SingleConsumerStack{T}()
         cond = Base.AsyncCondition()
         mayreverse = fifo ? Iterators.reverse : identity
         task = Threads.@spawn begin
